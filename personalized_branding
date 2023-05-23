@@ -1,0 +1,288 @@
+#setup
+import ctypes
+import sys
+import time
+from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
+import pyautogui as ag
+import pygetwindow as gw
+import pyperclip as pc
+import winsound
+
+#############################################################################################
+#################################    support functions     ##################################
+#############################################################################################
+
+#simplify typing of target cursor location            
+def move_cursor(location_tuplet):
+    
+    ag.moveTo(location_tuplet[0],location_tuplet[1])
+
+    
+#Scroll to bottom of window if the text pasted is too long to see the copy button
+def scroll_to_bottom():
+    
+    ag.move(-200,-200) #move the mouse click to escape the textbox
+    ag.click()
+    ag.press('end') #this scrolls down
+    time.sleep(0.3)
+
+
+#find a thing on the screen from your library of visual assets (screenshot each asset).
+#lots of things can go wrong here; often the easiest fix is to save a new screenshot
+#pro-tip: screenshots which include borders or other distinct edge elements work much better. Grab larger screenshots (make sure to only get static elements here)
+#if you're running the automation for a while, change power settings so screen does not turn off. If you're using external monitors, you can turn those off. Pyautogui
+# functions by taking screenshots and comparing to your specified element, so you need the gpu to be rendering the screen.
+#ALSO: Turn off anything that changes screen color (like Flux), as this seems to effect it as well.
+def find_visual_element_location(visual_element):
+    
+    #add retries, both because this can be buggy, but may fix itself on a following run (on the same visual element in a static environment), and because sometimes delay
+    # is needed to make sure the element has appeared on the screen
+    retry_count = 0
+    max_retries = 5
+        
+    while retry_count < max_retries:          
+        
+        try:
+            
+            #choose the browser window you will use. Change this depending on what you use
+            browser_window_title = "Google Chrome"
+
+            #picks the first browser window specified. Helpful if you close all other windows of that browser
+            #make sure you have chatgpt open in this window
+            browser_window = gw.getWindowsWithTitle(browser_window_title)[0]
+            ctypes.windll.user32.SwitchToThisWindow(browser_window._hWnd, True) #focus on window
+            browser_window.maximize()
+            # ag.sleep(0.3)  #adjust sleep duration if needed. Isn't necessary if the window isn't closing or moving out of full screen
+
+            #find location of element
+            visual_element_location = ag.locateOnScreen(visual_element, region=(browser_window.left, browser_window.top, browser_window.width, browser_window.height))
+            visual_element_x, visual_element_y = ag.center(visual_element_location)
+
+
+            return visual_element_x, visual_element_y
+        #if it errors, note error and try again. Sleep added to pad time for animation elements to finish (somewhat frequent cause of error)
+        except Exception as e:
+            print(f"Error occurred for {visual_element}: {e}")
+            retry_count += 1
+            time.sleep(0.5)
+            
+    #if it doesn't work 5 times in a row return True to use to triggle throttle check. Otherwise has no effect
+    return True
+
+
+#if chatgpt has throttled use of GPT-4, sleep until it is available again
+def throttle_sleep():
+    
+    #copy the throttle warning (click and drag from top right to bottom left of warning)
+    throttle_warning_top_left_location = find_visual_element_location('visual_assets/throttle_warning_top_left.png')
+    move_cursor(throttle_warning_top_left_location)
+    ag.mouseDown(button='left')
+    throttle_warning_bottom_right_location = find_visual_element_location('visual_assets/throttle_warning_bottom_right.png')
+    move_cursor(throttle_warning_bottom_right_location)
+    ag.mouseUp(button='left')
+    ag.hotkey('ctrl','c')
+    
+    #pull the time to return from the throttle warning
+    warning_text = pc.paste()
+    warning_text = warning_text[warning_text.find('M')-7:warning_text.find('M')+1].strip()
+    seconds_to_sleep = 100    #arbitrary value for loop
+    
+    #check how many seconds until GPT-4 is available again. If it's less than 60 minutes, sleep until it's available (+1 minute buffer). Otherwise, wake up once an hour
+    #and check again (mostly to print updated sleep time for my impatient ass)
+    while seconds_to_sleep > 0:
+        seconds_to_sleep = get_time_difference(warning_text)
+        print(f"Currently Throttled. Sleeping for {seconds_to_sleep/60} minutes before starting again")
+        if seconds_to_sleep < 3600:
+            time.sleep(seconds_to_sleep + 60)
+        else:
+            time.sleep(3600)    
+            
+
+#find time difference for sleeping until throttle released
+def get_time_difference(throttle_release_time):
+    
+    current_datetime = datetime.now()
+    throttle_release_time = datetime.strptime(time_str, "%I:%M %p")    #parse time string
+    #add time to current date for datetime
+    throttle_release_datetime = datetime.combine(datetime.today(), throttle_release_time.time())
+
+    #if given datetime is in past, move it up one day (wrap around at midnight)
+    if throttle_release_datetime < current_datetime:
+        throttle_release_datetime += timedelta(days=1)
+
+    #get time difference in seconds
+    time_difference = round((throttle_release_datetime - current_datetime).total_seconds())
+
+    return time_difference  
+
+
+#############################################################################################
+##############################    functions to make it go     ###############################
+#############################################################################################
+
+#start a new chat, ensuring no accedental carry over from previous errors
+def start_new_chat(model):
+    
+    #reset the chat. If everything carries out properly, this block should do nothing
+    try:
+        new_chat_location = find_visual_element_location('visual_assets/new_chat.png')
+        move_cursor(new_chat_location)
+        ag.click()
+    except:
+        ag.press('f5')
+        print('couldnt find new chat, refreshing instead')
+        time.sleep(2)
+    
+    #change the model to gpt-4 if model = 'gpt-4'
+    if model == 'gpt-4':
+        #check both images, as sometimes it gets stuck on selected
+        try:
+            try:
+                gpt_4_model_location = find_visual_element_location('visual_assets/gpt-4_model_unselected.png')
+            except:
+                gpt_4_model_location = find_visual_element_location('visual_assets/gpt-4_model_selected.png')
+        except Exception as e:
+            print("Error:", e)
+            # Make a loud beep sound to alert of exit on error
+            winsound.Beep(1000, 1000)  # Frequency: 1000Hz, Duration: 1000ms
+            sys.exit() #exit to make sure no significant error is happening. Update this more eloquently later
+            
+        move_cursor(gpt_4_model_location)
+        ag.click()
+
+
+#create gpt input values by combining prompt elements with brand name and scraped branding text
+#this is the most modifiable block for your specific needs. In this case, raw brand text was submittted between two prompt elements. Make what changes you need to result in your own prompt output as a string object
+def create_gpt_input_values(brand_input_text, brand):
+    prompt_text_1 = "This is sample prompt text, but you will enter your own here"
+    prompt_text_2 = "This is sample prompt text, but you will enter your own here"
+    
+    #reduce brand text to ensure token count under limit
+    input_text_processed = input_text_processed[:12000]   
+    input_text_processed = '"""{}"""'.format(brand_input_text)
+    gpt_input = '\n'.join((prompt_text_1, input_text_processed, prompt_text_2))
+    return gpt_input        
+        
+
+#chatgpt go brrrrrrrrr
+def run_chatgpt(brand_input_text, brand):
+    #copy the full prompt into the clipboard
+    chat_gpt_input_values = create_gpt_input_values(brand_input_text, brand)
+    pc.copy(chat_gpt_input_values)
+    #paste the prompt into the textbox
+    text_box_location = find_visual_element_location('visual_assets/text_box.png')
+    move_cursor(text_box_location)
+    ag.click()
+    ag.hotkey('ctrl', 'v')
+    #send the prompt
+    send_button_location = find_visual_element_location('visual_assets/send_button.png')
+    move_cursor(send_button_location)
+    ag.click()
+    
+    
+#write the results into the dataframe at the specified output column
+def write_chatgpt_output(dataframe, row, output_column, model):
+    #wait for chat gpt to finish responding (extra long for gpt-4)
+    if model == 'gpt-4':
+        time.sleep(5)
+    else:
+        time.sleep(2)
+    
+    #try this several times because sometimes it takes a while. This is the most likely step to fail
+    for i in range(5):
+        try:
+            scroll_to_bottom()
+            copy_button_location = find_visual_element_location('visual_assets/copy_button.png')
+            move_cursor(copy_button_location)
+            ag.click()
+            chat_gpt_output = pc.paste()
+            dataframe.at[row.name, output_column] = chat_gpt_output
+            break
+        
+        #if it's failed, it's likely because chatgpt is still writing the answer, so add short delay before looping
+        except:
+            time.sleep(2)
+            #check if it's being throttled; if so, sleep for the amount of time throttled then begin again after access to GPT-4 is restored
+            if model == 'gpt-4':
+                throttle_check = find_visual_element_location('visual_assets/gpt_throttle_warning.png')
+                if throttle_check == True:
+                    throttle_warning_top_left_location = find_visual_element_location('visual_assets/throttle_warning_top_left.png')
+                    move_cursor(throttle_warning_top_left_location)
+                    ag.mouseDown(button='left')
+                    throttle_warning_bottom_right_location = find_visual_element_location('visual_assets/throttle_warning_bottom_right.png')
+                    move_cursor(throttle_warning_bottom_right_location)
+                    ag.mouseUp(button='left')
+                    ag.hotkey('ctrl','c')
+
+
+#clear the chat and start a new one to make sure no crossover happens between questions, escape errors, etc.
+def reset_chatgpt():
+    time.sleep(1) #sleep to ensure enough time for the animation flash of the auto-named chat title to complete
+    delete_chat_location = find_visual_element_location('visual_assets/delete_chat.png')
+    move_cursor(delete_chat_location)
+    ag.click()
+    ag.move(25,0) #get out of the way to make sure the cursor doesn't interrupt the visual identity of the confirmation button
+    time.sleep(0.2)
+    confirm_delete_location = find_visual_element_location('visual_assets/confirm_delete.png')
+    move_cursor(confirm_delete_location)
+    ag.click()
+    
+#############################################################################################
+##################################    primary function     ##################################
+#############################################################################################
+
+
+#if model = 'gpt-4', make sure vanilla gpt-4 is selected, not including browser or plugins
+#run the whole thing
+def get_brand_personalization(dataframe, output_column, model='gpt-3.5', backup=False, backup_frequency=1):
+    
+    try:
+        #get start time for elapsed time count
+        start_time = time.time()
+
+        
+        for index, row in dataframe.iterrows():
+            print(f"Processing row {index}: {row['brand']} (" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())+')')
+            brand = row['brand']
+            #check if the location in the output column already has a value
+            if not pd.isnull(row[output_column]):
+                print(f"Skipping row {index} as there is already a value in {output_column}.")
+                continue
+
+            else:
+                try:
+                    #this is the main block of what's actually happening
+                    start_new_chat(model) #start new chat and select the model
+                    brand_input_text = row['brand_input_text']
+                    brand = row['brand']
+                    run_chatgpt(brand_input_text, brand) #create prompt from raw brand text, paste in chatgpt window, send prompt
+                    write_chatgpt_output(dataframe, row, output_column, model) #copy the result, write it into the appropriate output location
+                    df_brand_text.to_pickle('brand_personalization_v2_0_input.pkl')
+                    #save a backup if required (use backup_frequency to change to every n rows if you have a large dataset)
+                    if backup:
+                        if index % backup_frequency == 0:
+                            save_time = time.strftime('%Y-%m-%d %H_%M_%S', time.localtime())
+                            df_brand_text.to_pickle(f"brand_identity_personalization_backups/brabrand_personalization_v2_0_output backup - {save_time}.pkl") #write backup
+                    print(f"Processing row {index}: {row['brand']} successful")
+                    reset_chatgpt() 
+
+                except Exception as e:
+                    print(f"Error occurred for row {index} ({brand}): {e}")
+    
+                      
+    #catchall error code
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        
+        
+    finally:
+        #display total time elapsed
+        total_time = time.time() - start_time
+        print("Total time elapsed:", total_time, "seconds")
+        
+        #save final outputs
+        df_brand_text.to_pickle('brand_personalization_v2_0_output.pkl')   
+        df_brand_text.to_csv('brand_personalization_v2_0_output.csv')
