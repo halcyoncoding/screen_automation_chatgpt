@@ -260,12 +260,12 @@ def get_brand_personalization(dataframe, output_column, model='gpt-3.5', backup=
                     brand = row['brand']
                     run_chatgpt(brand_input_text, brand) #create prompt from raw brand text, paste in chatgpt window, send prompt
                     write_chatgpt_output(dataframe, row, output_column, model) #copy the result, write it into the appropriate output location
-                    df_brand_text.to_pickle('brand_personalization_v2_0_input.pkl')
+                    dataframe.to_pickle('brand_personalization_v2_0_input.pkl')
                     #save a backup if required (use backup_frequency to change to every n rows if you have a large dataset)
                     if backup:
                         if index % backup_frequency == 0:
                             save_time = time.strftime('%Y-%m-%d %H_%M_%S', time.localtime())
-                            df_brand_text.to_pickle(f"brand_identity_personalization_backups/brabrand_personalization_v2_0_output backup - {save_time}.pkl") #write backup
+                            dataframe.to_pickle(f"brand_identity_personalization_backups/brabrand_personalization_v2_0_output backup - {save_time}.pkl") #write backup
                     print(f"Processing row {index}: {row['brand']} successful")
                     reset_chatgpt() 
 
@@ -284,5 +284,5 @@ def get_brand_personalization(dataframe, output_column, model='gpt-3.5', backup=
         print("Total time elapsed:", total_time, "seconds")
         
         #save final outputs
-        df_brand_text.to_pickle('brand_personalization_v2_0_output.pkl')   
-        df_brand_text.to_csv('brand_personalization_v2_0_output.csv')
+        dataframe.to_pickle('brand_personalization_v2_0_output.pkl')   
+        dataframe.to_csv('brand_personalization_v2_0_output.csv')
