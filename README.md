@@ -1,4 +1,8 @@
 # screen_automation_chatgpt
+
+This is no longer relevant with the public release of GPT-4 API
+
+
 A project to automate the use of GPT-4 to create personalized brand text by modifying existing text without access to the API.
 
 As of the time of writing, it is extremely challenging to get access to GPT-4 via OpenAI's API. As a result, a lot of the advantages it provides in the way of time saving via automation are severely curtailed. 
